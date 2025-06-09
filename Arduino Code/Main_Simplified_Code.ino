@@ -22,7 +22,7 @@ Project published under CC-BY-NC-SA license https://creativecommons.org/licenses
 //Calibration setup: if you know your load cell's calibration factor, uncomment and change the calibration factor below. If you don't want to calibrate the load cell, comment this out.
 #define calibration
 
-#define calibrationFactor 1.9305 * 2280 * 0.09806// this value is obtained by calibrating the scale with known weights, details in https://github.com/bogde/HX711
+#define calibrationFactor -1.9305 * 2280 * 0.09806 / 0.484458317// this value is obtained by calibrating the scale with known weights, details in https://github.com/bogde/HX711
 
 //set this to the basic steps per revolution of your stepper motor (not counting in gear ratio). It is 200 for 1.8 degree stepper motors and 400 for 0.9 degree stepper motors. Leave unchanged if you don't know - in most cases it is 200 steps per rev.
 #define stepsPerRev 200
@@ -39,6 +39,8 @@ Project published under CC-BY-NC-SA license https://creativecommons.org/licenses
 //don't change this unless you want to change the fast speed
 #define fastSpeedMultiplier 100
 //modulus test threshold. Used to determine when to change speed to fast.
+#define moveSpeedMultiplier 200
+//modulus test threshold. Used to determine when to change speed to fast.
 #define modulusThreshold 30000
 //reading attempts to be taken on each reading; the average of the attempts will be displayed. Depends on your load cell amplifier's configuration. 10hz - 1 attempt, 80hz - 8 attempts.
 #define readAttempts 1
@@ -53,6 +55,8 @@ Project published under CC-BY-NC-SA license https://creativecommons.org/licenses
 #define ledPin 8
 #define endStop1Pin 9
 #define endStop2Pin 10
+#define D11 11
+#define D12 12
 #define enablePin 13
 #define DTPin A0
 #define SCKPin A1
@@ -68,6 +72,7 @@ int multiplier = 1;
 #define modulusSpeed stepsPerRev * microStep * gearRatio / leadScrewPitch / 60 * modulusSpeedMultiplier
 #define slowSpeed stepsPerRev * microStep * gearRatio / leadScrewPitch / 60 * slowSpeedMultiplier
 #define fastSpeed stepsPerRev * microStep * gearRatio / leadScrewPitch / 60 * fastSpeedMultiplier
+#define moveSpeed stepsPerRev * microStep * gearRatio / leadScrewPitch / 60 * moveSpeedMultiplier
 int stepperSpeed = slowSpeed;
 byte stepperSpeedHigh;
 byte stepperSpeedLow;
@@ -129,6 +134,12 @@ void setup() {
 
   pinMode(ledPin, OUTPUT);
   digitalWrite(ledPin, LOW);
+
+  pinMode(D11, OUTPUT);
+  digitalWrite(D11, LOW);
+
+  pinMode(D12, OUTPUT);
+  digitalWrite(D12, LOW);
   
   pinMode(EStopPin, INPUT);
   digitalWrite(EStopPin, HIGH);
@@ -353,6 +364,8 @@ void startTest()
   }
 
   stepperStatus = 1;
+  digitalWrite(ledPin, HIGH);
+  digitalWrite(D11, HIGH);
   sendCommand();
   
   testStart = true;
@@ -372,6 +385,8 @@ void stopTest()
   stepperDir = 0;
   stepperStatus = 0;
   sendCommand();
+  digitalWrite(ledPin, LOW);
+  digitalWrite(D11, LOW);
   
   moveStepper = false;
   //digitalWrite(enablePin, HIGH);
@@ -402,7 +417,7 @@ void moveUp()
   //digitalWrite(enablePin, LOW);
   Serial.println(F("\n-MOVING UP-\n"));
 
-  stepperSpeed = fastSpeed;
+  stepperSpeed = moveSpeed;
   stepperDir = 0;
   stepperStatus = 1;
   sendCommand();
@@ -414,7 +429,7 @@ void moveDown()
   //digitalWrite(enablePin, LOW);
   Serial.println(F("\n-MOVING DOWN-\n"));
 
-  stepperSpeed = fastSpeed;
+  stepperSpeed = moveSpeed;
   stepperDir = 1;
   stepperStatus = 1;
   sendCommand();
