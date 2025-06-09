@@ -14,6 +14,12 @@ Project published under CC-BY-NC-SA license https://creativecommons.org/licenses
 //Need U8x8 library, which is included in the u8g2 library https://github.com/olikraus/u8g2
 #include <U8x8lib.h>
 
+#include <string.h>
+
+#include <stdio.h>
+
+#include <math.h>
+
 //----------USER PARAMETERS----------
 
 //PLX-DAQ - Excel data collection. Uncomment this if you have PLX-DAQ set up for data analysis.
@@ -39,7 +45,7 @@ Project published under CC-BY-NC-SA license https://creativecommons.org/licenses
 //don't change this unless you want to change the fast speed
 #define fastSpeedMultiplier 100
 //modulus test threshold. Used to determine when to change speed to fast.
-#define moveSpeedMultiplier 200
+#define moveSpeedMultiplier 200 //Those seems to be mm/s
 //modulus test threshold. Used to determine when to change speed to fast.
 #define modulusThreshold 30000
 //reading attempts to be taken on each reading; the average of the attempts will be displayed. Depends on your load cell amplifier's configuration. 10hz - 1 attempt, 80hz - 8 attempts.
@@ -67,6 +73,7 @@ Project published under CC-BY-NC-SA license https://creativecommons.org/licenses
 bool testStart = false;
 bool moveStepper = false;
 byte stepperDir = 0;
+byte stepperDirParams = 0;
 byte stepperStatus = 0; //0 = stopped, 1 = moving
 int multiplier = 1;
 #define modulusSpeed stepsPerRev * microStep * gearRatio / leadScrewPitch / 60 * modulusSpeedMultiplier
@@ -80,6 +87,10 @@ byte stepperSpeedLow;
 #define fastMeasurementDelay 0.1 * 1000000
 float measurementDelay = slowMeasurementDelay;
 float measurementMax = 0;
+float measurement = 0;
+float serialCmdMoveSpeed = stepsPerRev * microStep * gearRatio / leadScrewPitch / 60 * moveSpeedMultiplier;
+float forceAbsoluteLimit = 1500.0; //Force limit in Newtons, stops when reached
+
 unsigned long lastMeasurement = 0;
 unsigned long testStartTime = 0;
 unsigned long testTime = 0;
@@ -102,6 +113,11 @@ void setup() {
   #ifndef plxdaq
   Serial.println(F("INITIALIZING"));
   #endif
+
+  Serial.println(F("Parameters command format is as follows:"));
+  Serial.println(F("set <int-stepper dir> <float-move speed [mm/s]> <float-force absolute limit>"));
+  Serial.println(F("Dir=0 is stretching, max speed is 200"));
+  Serial.println(F("Then use 'start'"));
 
   u8x8.begin();
   u8x8.setPowerSave(0);
@@ -157,6 +173,7 @@ void setup() {
 
   #ifndef plxdaq
   Serial.println(F("INITIALIZATION COMPLETE"));
+  Serial.println(F("To "));
   #else
   Serial.println(F("CLEARDATA"));
   Serial.println(F("LABEL,Time,Test Time,Value"));
@@ -166,10 +183,17 @@ void setup() {
 void loop() {
 
   //EMERGENCY STOP
-  if (!digitalRead(endStop1Pin) || !digitalRead(endStop2Pin) && !emergencyStop)
+  if (!digitalRead(endStop1Pin) || !digitalRead(endStop2Pin) && !emergencyStop || fabs(measurement)>forceAbsoluteLimit)
   {
     stopNow();
-    Serial.println(F("Endstop triggered - emergency stop"));
+    if (fabs(measurement)>forceAbsoluteLimit)
+    {
+      Serial.println(F("Max force exceeded - emergency stop"));
+    }
+    else
+    {
+      Serial.println(F("Endstop triggered - emergency stop"));
+    }
   }
   
   if (emergencyStop)
@@ -216,6 +240,10 @@ void loop() {
     else if (inputString == "down")
     {
       moveDown();
+    }
+    else if (strstr(inputString.c_str(), "set"))
+    {
+      set_params(inputString);
     }
     else if (inputString == "mode")
     {
@@ -283,7 +311,7 @@ void loop() {
 
   if ((micros() - lastMeasurement) >= measurementDelay)
   {
-    float measurement = scale.get_units(readAttempts) * multiplier;
+    measurement = scale.get_units(readAttempts) * multiplier;
     String measurementStr = String(measurement);
     #ifndef plxdaq
     Serial.println(measurementStr);
@@ -362,6 +390,19 @@ void startTest()
     stepperDir = 0;
     multiplier = 1;
   }
+  else if (mode == 6)
+  {
+    stepperSpeed = serialCmdMoveSpeed;
+    stepperDir = stepperDirParams;
+    if (stepperDirParams==0)
+    {
+      multiplier = 1;
+    }
+    else
+    {
+     multiplier = 0; 
+    }
+  }
 
   stepperStatus = 1;
   digitalWrite(ledPin, HIGH);
@@ -403,6 +444,22 @@ void stopTest()
     testStart = false;
     delay(10000);
   }
+}
+
+void set_params(String cmdString)
+{
+  //command format as follows: set <int-stepper dir> <float-move speed [mm/s]> <float-force absolute limit>
+  mode=6;
+  stepperDirParams = 0;
+  float parametricSpeedMultiplier = 0.0;
+
+  sscanf(cmdString.c_str(), "set %i %f %f", stepperDirParams, parametricSpeedMultiplier, forceAbsoluteLimit);
+  serialCmdMoveSpeed = stepsPerRev * microStep * gearRatio / leadScrewPitch / 60 * parametricSpeedMultiplier;
+
+  stepperSpeed = serialCmdMoveSpeed;
+  stepperStatus = 1;
+
+  Serial.println("Parameters set to:\ndir: " + String(stepperDirParams) + "\nSpeed: " + String(serialCmdMoveSpeed) + "\nForce limit: " + String(forceAbsoluteLimit)); 
 }
 
 void tareScale()
@@ -470,6 +527,10 @@ void checkMode()
   else if (mode == 5)
   {
     stringMode = F("Tensile Modulus Test");
+  }
+  else if (mode == 6)
+  {
+    stringMode = F("Serial cmd parametric Test");
   }
 }
 
