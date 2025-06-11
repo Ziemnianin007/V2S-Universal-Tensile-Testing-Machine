@@ -79,6 +79,7 @@ int multiplier = 1;
 #define slowSpeed stepsPerRev * microStep * gearRatio / leadScrewPitch / 60 * slowSpeedMultiplier
 #define fastSpeed stepsPerRev * microStep * gearRatio / leadScrewPitch / 60 * fastSpeedMultiplier
 #define moveSpeed stepsPerRev * microStep * gearRatio / leadScrewPitch / 60 * moveSpeedMultiplier
+#define constantForSpeedCalc stepsPerRev * microStep * gearRatio / leadScrewPitch / 60
 int stepperSpeed = slowSpeed;
 byte stepperSpeedHigh;
 byte stepperSpeedLow;
@@ -87,8 +88,9 @@ byte stepperSpeedLow;
 float measurementDelay = slowMeasurementDelay;
 float measurementMax = 0;
 float measurement = 0;
-int serialCmdMoveSpeed = stepsPerRev * microStep * gearRatio / leadScrewPitch / 60 * moveSpeedMultiplier;
+int serialCmdMoveSpeed = constantForSpeedCalc * moveSpeedMultiplier;
 int forceAbsoluteLimit = 1500; //Force limit in Newtons, stops when reached
+int forceSwitchLimit = -1; //Force limit in Newtons, stops when reached
 
 unsigned long lastMeasurement = 0;
 unsigned long testStartTime = 0;
@@ -116,6 +118,7 @@ void setup() {
 
   Serial.println(F("Parameters command format is as follows:"));
   Serial.println(F("set <int-stepper dir> <int-move speed [mm/min]> <int-force absolute limit>"));
+  Serial.println(F("movrev <int-stepper dir> <int-move speed [mm/min]> <int-force absolute limit> <int-switch-dir-force>"));
   Serial.println(F("Dir=0 is stretching, max speed is 200"));
   Serial.println(F("Then use 'start'"));
 
@@ -197,7 +200,7 @@ void loop() {
     stopNow();
     Serial.println(F("Force limit exceeded - emergency stop"));
   }
-  
+
   if (emergencyStop)
   { 
     stepperSpeed = 0;
@@ -219,6 +222,32 @@ void loop() {
     for (;;);
   }
   
+  //reverse movement after reaching force treshold
+  if (forceSwitchLimit > 0)
+  {
+    if (measurement>forceSwitchLimit || measurement<-forceSwitchLimit)
+    {
+      stepperSpeed = serialCmdMoveSpeed;
+      if (stepperDirParams==1)
+      {
+        stepperDir = 0;
+        multiplier = 1;
+      }
+      else
+      {
+        stepperDir = 1;
+        multiplier = -1; 
+      }
+      stepperStatus = 1;
+      u8x8.clear();
+      u8x8.println("Test\nReverse");
+      //Serial.println("\n-Reverse-\n");
+      sendCommand();
+
+      forceSwitchLimit = -1;
+    }
+  }
+
   String inputString;
   bool serialAvailable = false;
   while (Serial.available())
@@ -254,6 +283,10 @@ void loop() {
     else if (strstr(inputString.c_str(), "set"))
     {
       set_params(inputString);
+    }
+    else if (strstr(inputString.c_str(), "movrev"))
+    {
+      set_params_rev(inputString);
     }
     else if (inputString == "mode")
     {
@@ -413,6 +446,19 @@ void startTest()
      multiplier = -1; 
     }
   }
+  else if (mode == 7)
+  {
+    stepperSpeed = serialCmdMoveSpeed;
+    stepperDir = stepperDirParams;
+    if (stepperDirParams==0)
+    {
+      multiplier = 1;
+    }
+    else
+    {
+     multiplier = -1; 
+    }
+  }
 
   stepperStatus = 1;
   digitalWrite(ledPin, HIGH);
@@ -464,7 +510,7 @@ void set_params(String cmdString)
   int stepperDirParamsInt;
   int parametricSpeedMultiplier = 0;
   sscanf(cmdString.c_str(), "set %i %i %i", &stepperDirParamsInt, &parametricSpeedMultiplier, &forceAbsoluteLimit);
-  serialCmdMoveSpeed = int(float(stepsPerRev) * float(microStep) * float(gearRatio) / float(leadScrewPitch) / float(60) * float(parametricSpeedMultiplier));
+  serialCmdMoveSpeed = int(constantForSpeedCalc * float(parametricSpeedMultiplier));
   if (stepperDirParamsInt != 0)
   {
     stepperDirParams = 1;
@@ -479,6 +525,32 @@ void set_params(String cmdString)
   {
     
     Serial.println("Parameters set to:\ndir: compressing " + String(stepperDirParams) + "\nSpeed: " + String(parametricSpeedMultiplier) + "[mm/min]\nForce limit: " + String(forceAbsoluteLimit)+"N"); 
+  }
+}
+
+void set_params_rev(String cmdString)
+{
+  //command format as follows: set <int-stepper dir> <int-move speed [mm/min]> <int-force absolute limit>
+  mode=7;
+  stepperDirParams = 0;
+  int stepperDirParamsInt;
+  int parametricSpeedMultiplier = 0;
+  sscanf(cmdString.c_str(), "movrev %i %i %i %i", &stepperDirParamsInt, &parametricSpeedMultiplier, &forceAbsoluteLimit, &forceSwitchLimit);
+  serialCmdMoveSpeed = int(constantForSpeedCalc * float(parametricSpeedMultiplier));
+  if (stepperDirParamsInt != 0)
+  {
+    stepperDirParams = 1;
+  }
+  stepperSpeed = serialCmdMoveSpeed;
+  stepperStatus = 1;
+  if (stepperDirParams==0) //is stretching
+  {
+    Serial.println("Parameters set to:\ndir: stretching " + String(stepperDirParams) + "\nSpeed: " + String(parametricSpeedMultiplier) + "[mm/min]\nForce limit: " + String(forceAbsoluteLimit)+"N" + "\nForce switch: " + String(forceSwitchLimit)+"N"); 
+  }
+  else
+  {
+    
+    Serial.println("Parameters set to:\ndir: compressing " + String(stepperDirParams) + "\nSpeed: " + String(parametricSpeedMultiplier) + "[mm/min]\nForce limit: " + String(forceAbsoluteLimit)+"N" + "\nForce switch: " + String(forceSwitchLimit)+"N"); 
   }
 }
 
