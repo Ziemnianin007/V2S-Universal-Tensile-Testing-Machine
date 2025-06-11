@@ -18,7 +18,6 @@ Project published under CC-BY-NC-SA license https://creativecommons.org/licenses
 
 #include <stdio.h>
 
-#include <math.h>
 
 //----------USER PARAMETERS----------
 
@@ -45,7 +44,7 @@ Project published under CC-BY-NC-SA license https://creativecommons.org/licenses
 //don't change this unless you want to change the fast speed
 #define fastSpeedMultiplier 100
 //modulus test threshold. Used to determine when to change speed to fast.
-#define moveSpeedMultiplier 200 //Those seems to be mm/s
+#define moveSpeedMultiplier 200 //Those seems to be mm/min
 //modulus test threshold. Used to determine when to change speed to fast.
 #define modulusThreshold 30000
 //reading attempts to be taken on each reading; the average of the attempts will be displayed. Depends on your load cell amplifier's configuration. 10hz - 1 attempt, 80hz - 8 attempts.
@@ -88,8 +87,8 @@ byte stepperSpeedLow;
 float measurementDelay = slowMeasurementDelay;
 float measurementMax = 0;
 float measurement = 0;
-float serialCmdMoveSpeed = stepsPerRev * microStep * gearRatio / leadScrewPitch / 60 * moveSpeedMultiplier;
-float forceAbsoluteLimit = 1500.0; //Force limit in Newtons, stops when reached
+int serialCmdMoveSpeed = stepsPerRev * microStep * gearRatio / leadScrewPitch / 60 * moveSpeedMultiplier;
+int forceAbsoluteLimit = 1500; //Force limit in Newtons, stops when reached
 
 unsigned long lastMeasurement = 0;
 unsigned long testStartTime = 0;
@@ -102,6 +101,7 @@ bool moveUpOldState = HIGH;
 bool moveDownOldState = HIGH;
 bool confirmMode = false;
 bool emergencyStop = false;
+bool emergencyStopForce = false;
 String stringMode;
 
 U8X8_SSD1306_128X64_NONAME_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);   
@@ -115,7 +115,7 @@ void setup() {
   #endif
 
   Serial.println(F("Parameters command format is as follows:"));
-  Serial.println(F("set <int-stepper dir> <float-move speed [mm/s]> <float-force absolute limit>"));
+  Serial.println(F("set <int-stepper dir> <int-move speed [mm/min]> <int-force absolute limit>"));
   Serial.println(F("Dir=0 is stretching, max speed is 200"));
   Serial.println(F("Then use 'start'"));
 
@@ -161,7 +161,7 @@ void setup() {
   digitalWrite(EStopPin, HIGH);
 
   pinMode(enablePin, OUTPUT);
-  digitalWrite(enablePin, LOW);
+  digitalWrite(enablePin, HIGH);
   
   pinMode(endStop1Pin, INPUT);
   digitalWrite(endStop1Pin, HIGH);
@@ -181,19 +181,21 @@ void setup() {
 }
  
 void loop() {
+  //stop motor after reset
 
   //EMERGENCY STOP
-  if (!digitalRead(endStop1Pin) || !digitalRead(endStop2Pin) && !emergencyStop || fabs(measurement)>forceAbsoluteLimit)
+  if (!digitalRead(endStop1Pin) || !digitalRead(endStop2Pin) && !emergencyStop)
   {
     stopNow();
-    if (fabs(measurement)>forceAbsoluteLimit)
-    {
-      Serial.println(F("Max force exceeded - emergency stop"));
-    }
-    else
-    {
-      Serial.println(F("Endstop triggered - emergency stop"));
-    }
+    Serial.println(F("Endstop triggered - emergency stop"));
+  }
+  
+  //EMERGENCY STOP force exceeded
+  if (measurement>forceAbsoluteLimit || measurement<-forceAbsoluteLimit)
+  {
+    emergencyStopForce = true;
+    stopNow();
+    Serial.println(F("Force limit exceeded - emergency stop"));
   }
   
   if (emergencyStop)
@@ -205,7 +207,15 @@ void loop() {
     
     Serial.println(F("\n\n\n-EMERGENCY STOP - RESET TO CLEAR-\n-EMERGENCY STOP - RESET TO CLEAR-\n-EMERGENCY STOP - RESET TO CLEAR-"));
     u8x8.clear();
-    u8x8.print(F("E-STOP\nRESET"));
+    if (emergencyStopForce == false)
+    {
+      u8x8.print(F("E-STOP\nRESET"));
+    }
+    else
+    {
+      u8x8.print(F("F-STOP\nRESET"));
+    }
+    
     for (;;);
   }
   
@@ -269,7 +279,7 @@ void loop() {
   bool moveDownNewState = digitalRead(moveDownPin);
   bool startNewState = digitalRead(startPin);
   bool tareNewState = digitalRead(tarePin);
-  
+
   if (!digitalRead(moveUpPin) && moveUpNewState != moveUpOldState && moveUpNewState == LOW)
   {
     moveUp();
@@ -400,7 +410,7 @@ void startTest()
     }
     else
     {
-     multiplier = 0; 
+     multiplier = -1; 
     }
   }
 
@@ -448,18 +458,28 @@ void stopTest()
 
 void set_params(String cmdString)
 {
-  //command format as follows: set <int-stepper dir> <float-move speed [mm/s]> <float-force absolute limit>
+  //command format as follows: set <int-stepper dir> <int-move speed [mm/min]> <int-force absolute limit>
   mode=6;
   stepperDirParams = 0;
-  float parametricSpeedMultiplier = 0.0;
-
-  sscanf(cmdString.c_str(), "set %i %f %f", stepperDirParams, parametricSpeedMultiplier, forceAbsoluteLimit);
-  serialCmdMoveSpeed = stepsPerRev * microStep * gearRatio / leadScrewPitch / 60 * parametricSpeedMultiplier;
-
+  int stepperDirParamsInt;
+  int parametricSpeedMultiplier = 0;
+  sscanf(cmdString.c_str(), "set %i %i %i", &stepperDirParamsInt, &parametricSpeedMultiplier, &forceAbsoluteLimit);
+  serialCmdMoveSpeed = int(float(stepsPerRev) * float(microStep) * float(gearRatio) / float(leadScrewPitch) / float(60) * float(parametricSpeedMultiplier));
+  if (stepperDirParamsInt != 0)
+  {
+    stepperDirParams = 1;
+  }
   stepperSpeed = serialCmdMoveSpeed;
   stepperStatus = 1;
-
-  Serial.println("Parameters set to:\ndir: " + String(stepperDirParams) + "\nSpeed: " + String(serialCmdMoveSpeed) + "\nForce limit: " + String(forceAbsoluteLimit)); 
+  if (stepperDirParams==0) //is stretching
+  {
+    Serial.println("Parameters set to:\ndir: stretching " + String(stepperDirParams) + "\nSpeed: " + String(parametricSpeedMultiplier) + "[mm/min]\nForce limit: " + String(forceAbsoluteLimit)+"N"); 
+  }
+  else
+  {
+    
+    Serial.println("Parameters set to:\ndir: compressing " + String(stepperDirParams) + "\nSpeed: " + String(parametricSpeedMultiplier) + "[mm/min]\nForce limit: " + String(forceAbsoluteLimit)+"N"); 
+  }
 }
 
 void tareScale()
@@ -555,6 +575,7 @@ void sendCommand()
     Wire.write(sendInfo[i]);  //data bytes are queued in local buffer
   }
   byte sendStatus = Wire.endTransmission();
+  digitalWrite(enablePin, LOW); //fixes rotating motor after reset
   if (sendStatus != 0)
   {
     String sendStatusStr = String(sendStatus);
