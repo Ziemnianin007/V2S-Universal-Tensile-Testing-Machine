@@ -22,7 +22,7 @@ Project published under CC-BY-NC-SA license https://creativecommons.org/licenses
 //----------USER PARAMETERS----------
 
 //PLX-DAQ - Excel data collection. Uncomment this if you have PLX-DAQ set up for data analysis.
-//#define plxdaq
+#define plxdaq
 
 //Calibration setup: if you know your load cell's calibration factor, uncomment and change the calibration factor below. If you don't want to calibrate the load cell, comment this out.
 #define calibration
@@ -90,7 +90,9 @@ float measurementMax = 0;
 float measurement = 0;
 int serialCmdMoveSpeed = constantForSpeedCalc * moveSpeedMultiplier;
 int forceAbsoluteLimit = 1500; //Force limit in Newtons, stops when reached
+int howManyTimesForceLimitExceeded = 0;
 int forceSwitchLimit = -1; //Force limit in Newtons, stops when reached
+int howManyTimesForceSwitchExceeded = 0;
 
 unsigned long lastMeasurement = 0;
 unsigned long testStartTime = 0;
@@ -196,9 +198,19 @@ void loop() {
   //EMERGENCY STOP force exceeded
   if (measurement>forceAbsoluteLimit || measurement<-forceAbsoluteLimit)
   {
+    if (howManyTimesForceLimitExceeded<10){ //sometimes some noises/error make this value huge, that will prevent stopping test then for single event
+      howManyTimesForceLimitExceeded = howManyTimesForceLimitExceeded+1;
+    }
+    else
+    {
     emergencyStopForce = true;
     stopNow();
     Serial.println(F("Force limit exceeded - emergency stop"));
+    }
+  }
+  else
+  {
+    howManyTimesForceLimitExceeded = 0;
   }
 
   if (emergencyStop)
@@ -223,28 +235,39 @@ void loop() {
   }
   
   //reverse movement after reaching force treshold
-  if (forceSwitchLimit > 0)
+  if (forceSwitchLimit > 0 && moveStepper == true)
   {
     if (measurement>forceSwitchLimit || measurement<-forceSwitchLimit)
     {
-      stepperSpeed = serialCmdMoveSpeed;
-      if (stepperDirParams==1)
-      {
-        stepperDir = 0;
-        multiplier = 1;
+      
+      if (howManyTimesForceSwitchExceeded<10){ //sometimes some noises/error make this value huge, that will prevent stopping test then for single event
+        howManyTimesForceSwitchExceeded = howManyTimesForceSwitchExceeded+1;
       }
       else
       {
-        stepperDir = 1;
-        multiplier = -1; 
-      }
-      stepperStatus = 1;
-      u8x8.clear();
-      u8x8.println("Test\nReverse");
-      //Serial.println("\n-Reverse-\n");
-      sendCommand();
+        stepperSpeed = serialCmdMoveSpeed;
+        if (stepperDirParams==1)
+        {
+          stepperDir = 0;
+          multiplier = 1;
+        }
+        else
+        {
+          stepperDir = 1;
+          multiplier = -1; 
+        }
+        stepperStatus = 1;
+        u8x8.clear();
+        u8x8.println("Test\nReverse");
+        //Serial.println("\n-Reverse-\n");
+        sendCommand();
 
-      forceSwitchLimit = -1;
+        forceSwitchLimit = -1;
+      }
+    }
+    else
+    {
+      howManyTimesForceSwitchExceeded = 0;
     }
   }
 
@@ -355,10 +378,13 @@ void loop() {
   if ((micros() - lastMeasurement) >= measurementDelay)
   {
     measurement = scale.get_units(readAttempts) * multiplier;
+    
     String measurementStr = String(measurement);
-    #ifndef plxdaq
-    Serial.println(measurementStr);
-    #endif
+    measurementStr.replace(".",",");
+    String testTimeStr = String(testTime/1000) + "," + String(testTime%1000);
+    String millisStr = String(millis());
+    //Serial.println("DATA,TIME," + millisStr + "," + testTimeStr + "," + measurementStr);
+    Serial.println(testTimeStr + ";" + measurementStr);
     
     if (!testStart)
     {
@@ -372,11 +398,12 @@ void loop() {
       {
         measurementMax = measurement;
       }
-      #ifdef plxdaq
-      String testTimeStr = String(testTime);
-      String millisStr = String(millis());
-      Serial.println("DATA,TIME," + millisStr + "," + testTimeStr + "," + measurementStr);
-      #endif
+      // #ifdef plxdaq
+      // String testTimeStr = String(testTime);
+      // String millisStr = String(millis());
+      // //Serial.println("DATA,TIME," + millisStr + "," + testTimeStr + "," + measurementStr);
+      // Serial.println(testTimeStr + ";" + measurementStr);
+      // #endif
     }
     lastMeasurement = micros();
   }
