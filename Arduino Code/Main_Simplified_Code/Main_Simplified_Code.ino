@@ -195,23 +195,6 @@ void loop() {
     Serial.println(F("Endstop triggered - emergency stop"));
   }
   
-  //EMERGENCY STOP force exceeded
-  if (measurement>forceAbsoluteLimit || measurement<-forceAbsoluteLimit)
-  {
-    if (howManyTimesForceLimitExceeded<10){ //sometimes some noises/error make this value huge, that will prevent stopping test then for single event
-      howManyTimesForceLimitExceeded = howManyTimesForceLimitExceeded+1;
-    }
-    else
-    {
-    emergencyStopForce = true;
-    stopNow();
-    Serial.println(F("Force limit exceeded - emergency stop"));
-    }
-  }
-  else
-  {
-    howManyTimesForceLimitExceeded = 0;
-  }
 
   if (emergencyStop)
   { 
@@ -233,43 +216,7 @@ void loop() {
     
     for (;;);
   }
-  
-  //reverse movement after reaching force treshold
-  if (forceSwitchLimit > 0 && moveStepper == true)
-  {
-    if (measurement>forceSwitchLimit || measurement<-forceSwitchLimit)
-    {
-      
-      if (howManyTimesForceSwitchExceeded<10){ //sometimes some noises/error make this value huge, that will prevent stopping test then for single event
-        howManyTimesForceSwitchExceeded = howManyTimesForceSwitchExceeded+1;
-      }
-      else
-      {
-        stepperSpeed = serialCmdMoveSpeed;
-        if (stepperDirParams==1)
-        {
-          stepperDir = 0;
-          multiplier = 1;
-        }
-        else
-        {
-          stepperDir = 1;
-          multiplier = -1; 
-        }
-        stepperStatus = 1;
-        u8x8.clear();
-        u8x8.println("Test\nReverse");
-        //Serial.println("\n-Reverse-\n");
-        sendCommand();
 
-        forceSwitchLimit = -1;
-      }
-    }
-    else
-    {
-      howManyTimesForceSwitchExceeded = 0;
-    }
-  }
 
   String inputString;
   bool serialAvailable = false;
@@ -406,6 +353,59 @@ void loop() {
       // #endif
     }
     lastMeasurement = micros();
+
+        //EMERGENCY STOP force exceeded
+  if (measurement>forceAbsoluteLimit || measurement<-forceAbsoluteLimit)
+  {
+    if (howManyTimesForceLimitExceeded<3){ //sometimes some noises/error make this value huge, that will prevent stopping test then for single event
+      howManyTimesForceLimitExceeded = howManyTimesForceLimitExceeded+1;
+    }
+    else
+    {
+    emergencyStopForce = true;
+    stopNow();
+    Serial.println(F("Force limit exceeded - emergency stop"));
+    }
+  }
+  else
+  {
+    howManyTimesForceLimitExceeded = 0;
+  }
+  //reverse movement after reaching force treshold
+  if (forceSwitchLimit > 0 && moveStepper == true)
+  {
+    if (measurement>forceSwitchLimit || measurement<-forceSwitchLimit)
+    {
+      
+      if (howManyTimesForceSwitchExceeded<3){ //sometimes some noises/error make this value huge, that will prevent stopping test then for single event
+        howManyTimesForceSwitchExceeded = howManyTimesForceSwitchExceeded+1;
+      }
+      else
+      {
+        stepperSpeed = serialCmdMoveSpeed;
+        if (stepperDirParams==1)
+        {
+          stepperDir = 0;
+        }
+        else
+        {
+          stepperDir = 1;
+        }
+        stepperStatus = 1;
+        u8x8.clear();
+        u8x8.println("Test\nReverse");
+        //Serial.println("\n-Reverse-\n");
+        sendCommand();
+
+        forceSwitchLimit = -1;
+      }
+    }
+    else
+    {
+      howManyTimesForceSwitchExceeded = 0;
+    }
+  }
+
   }
 
   if (mode == 5 && testTime >= modulusThreshold && stepperSpeed != fastSpeed)
