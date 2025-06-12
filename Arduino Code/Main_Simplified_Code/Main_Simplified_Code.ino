@@ -537,7 +537,7 @@ void set_params(String cmdString)
   int stepperDirParamsInt;
   int parametricSpeedMultiplier = 0;
   sscanf(cmdString.c_str(), "set %i %i %i", &stepperDirParamsInt, &parametricSpeedMultiplier, &forceAbsoluteLimit);
-  serialCmdMoveSpeed = int(constantForSpeedCalc * float(parametricSpeedMultiplier));
+  serialCmdMoveSpeed = int(float(stepsPerRev) * float(microStep) * float(gearRatio) / float(leadScrewPitch) / float(60) * float(parametricSpeedMultiplier));
   if (stepperDirParamsInt != 0)
   {
     stepperDirParams = 1;
@@ -563,7 +563,7 @@ void set_params_rev(String cmdString)
   int stepperDirParamsInt;
   int parametricSpeedMultiplier = 0;
   sscanf(cmdString.c_str(), "movrev %i %i %i %i", &stepperDirParamsInt, &parametricSpeedMultiplier, &forceAbsoluteLimit, &forceSwitchLimit);
-  serialCmdMoveSpeed = int(constantForSpeedCalc * float(parametricSpeedMultiplier));
+  serialCmdMoveSpeed = int(float(stepsPerRev) * float(microStep) * float(gearRatio) / float(leadScrewPitch) / float(60) * float(parametricSpeedMultiplier));
   if (stepperDirParamsInt != 0)
   {
     stepperDirParams = 1;
@@ -572,12 +572,12 @@ void set_params_rev(String cmdString)
   stepperStatus = 1;
   if (stepperDirParams==0) //is stretching
   {
-    Serial.println("Parameters set to:\ndir: stretching " + String(stepperDirParams) + "\nSpeed: " + String(parametricSpeedMultiplier) + "[mm/min]\nForce limit: " + String(forceAbsoluteLimit)+"N" + "\nForce switch: " + String(forceSwitchLimit)+"N"); 
+    Serial.println("Parameters set to:\ndir: stretching " + String(stepperDirParams) + "\nSpeed: " + String(parametricSpeedMultiplier) + "[mm/min]\nForce limit: " + String(forceAbsoluteLimit)+"N" + "\nForce switch: " + String(forceSwitchLimit)+"N\n" + String(serialCmdMoveSpeed)); 
   }
   else
   {
     
-    Serial.println("Parameters set to:\ndir: compressing " + String(stepperDirParams) + "\nSpeed: " + String(parametricSpeedMultiplier) + "[mm/min]\nForce limit: " + String(forceAbsoluteLimit)+"N" + "\nForce switch: " + String(forceSwitchLimit)+"N"); 
+    Serial.println("Parameters set to:\ndir: compressing " + String(stepperDirParams) + "\nSpeed: " + String(parametricSpeedMultiplier) + "[mm/min]\nForce limit: " + String(forceAbsoluteLimit)+"N" + "\nForce switch: " + String(forceSwitchLimit)+"N\n" + String(serialCmdMoveSpeed)); 
   }
 }
 
@@ -650,6 +650,10 @@ void checkMode()
   else if (mode == 6)
   {
     stringMode = F("Serial cmd parametric Test");
+  }
+  else if (mode == 7)
+  {
+    stringMode = F("Serial cmd parametric Test with reverse");
   }
 }
 
